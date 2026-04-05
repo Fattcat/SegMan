@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <meta charset="UTF-8">
+    <title>Stegano Vault Pro</title>
+    <style>
+        :root { --accent: #00d4ff; --bg: #0f0f0f; --card: #1a1a1a; --error: #ff4d4d; }
+        body { background: var(--bg); color: #e0e0e0; font-family: 'Segoe UI', sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 0; }
+        
+        .nav-container { display: flex; align-items: center; gap: 40px; margin-bottom: 30px; font-size: 1.8rem; font-weight: 800; }
+        .nav-btn { cursor: pointer; color: #444; transition: 0.3s; letter-spacing: 2px; }
+        .nav-btn.active { color: var(--accent); text-shadow: 0 0 20px var(--accent); }
+        
+        .card { background: var(--card); padding: 30px; border-radius: 20px; width: 400px; display: none; border: 1px solid #333; }
+        .card.active { display: block; animation: slideUp 0.4s ease-out; }
+
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+        input, textarea { width: 100%; background: #252525; border: 1px solid #333; color: white; padding: 12px; margin: 10px 0; border-radius: 8px; box-sizing: border-box; font-size: 14px; }
+        button { width: 100%; padding: 14px; border: none; border-radius: 8px; background: var(--accent); color: #000; font-weight: bold; cursor: pointer; margin-top: 10px; transition: 0.2s; }
+        button:hover { filter: brightness(1.1); transform: scale(1.01); }
+
+        .error-msg { color: var(--error); font-size: 0.85rem; margin-top: 5px; display: none; text-align: center; }
+        
+        #decrypt-result-area { margin-top: 20px; border-top: 1px solid #333; padding-top: 20px; display: none; }
+        .copy-btn { background: #333; color: var(--accent); border: 1px solid var(--accent); margin-top: 5px; font-size: 0.8rem; padding: 8px; }
+        
+        #loading { display: none; position: fixed; top: 20px; color: var(--accent); font-weight: bold; background: #000; padding: 10px 20px; border-radius: 20px; border: 1px solid var(--accent); }
+    </style>
+</head>
+<body>
+
+    <div id="loading">Spracovávam dáta...</div>
+
+    <div class="nav-container">
+        <div id="btn-hide" class="nav-btn active" onclick="showTab('hide')">HIDE</div>
+        <div style="color:#222">|</div>
+        <div id="btn-unhide" class="nav-btn" onclick="showTab('unhide')">UNHIDE</div>
+    </div>
+
+    <div id="section-hide" class="card active">
+        <form id="form-hide">
+            <label style="font-size: 0.8rem; color: #888;">1. Vyber obrázok (JPG, PNG, BMP...)</label>
+            <input type="file" name="image" accept="image/*" required>
+            <label style="font-size: 0.8rem; color: #888;">2. Napíš tajnú správu</label>
+            <textarea name="text" rows="5" placeholder="Sem vlož text..." required></textarea>
+            <input type="password" name="password" placeholder="Bezpečnostné heslo" required>
+            <button type="submit">ZAKÓDOVAŤ A STIAHNUŤ</button>
+        </form>
+    </div>
+
+    <div id="section-unhide" class="card">
+        <form id="form-unhide">
+            <label style="font-size: 0.8rem; color: #888;">Nahraj stego-obrázok</label>
+            <input type="file" name="image" accept="image/*" required>
+            <div id="error-unhide" class="error-msg"></div>
+            <input type="password" name="password" placeholder="Heslo pre dešifrovanie" required>
+            <button type="submit">DEŠIFROVAŤ</button>
+        </form>
+
+        <div id="decrypt-result-area">
+            <label style="font-size: 0.8rem; color: #2ecc71;">Nájdená správa:</label>
+            <textarea id="output-text" rows="6" readonly></textarea>
+            <button class="copy-btn" onclick="copyText()">KOPÍROVAŤ DO SCHRÁNKY</button>
+        </div>
+    </div>
+
+    <script>
+        function showTab(tab) {
+            document.querySelectorAll('.card, .nav-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById('section-' + tab).classList.add('active');
+            document.getElementById('btn-' + tab).classList.add('active');
+            document.getElementById('decrypt-result-area').style.display = 'none';
+            document.getElementById('error-unhide').style.display = 'none';
+        }
+
+        // ŠIFROVANIE
+        document.getElementById('form-hide').onsubmit = async (e) => {
+            e.preventDefault();
+            document.getElementById('loading').style.display = 'block';
+            const formData = new FormData(e.target);
+            try {
+                const resp = await fetch('/encrypt', { method: 'POST', body: formData });
+                if (resp.ok) {
+                    const blob = await resp.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url; a.download = "stego_output.jpg"; a.click();
+                }
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        };
+
+        // DEŠIFROVANIE
+        document.getElementById('form-unhide').onsubmit = async (e) => {
+            e.preventDefault();
+            const errDiv = document.getElementById('error-unhide');
+            const resArea = document.getElementById('decrypt-result-area');
+            const outputText = document.getElementById('output-text');
+            const loader = document.getElementById('loading');
+
+            errDiv.style.display = 'none';
+            resArea.style.display = 'none';
+            loader.style.display = 'block';
+
+            const formData = new FormData(e.target);
+            const resp = await fetch('/decrypt', { method: 'POST', body: formData });
+            const data = await resp.json();
+
+            loader.style.display = 'none';
+            if (data.success) {
+                // Dekódovanie Base64 späť na UTF-8 text
+                const decodedText = decodeURIComponent(escape(atob(data.base64_data)));
+                outputText.value = decodedText;
+                resArea.style.display = 'block';
+            } else {
+                errDiv.innerText = data.error;
+                errDiv.style.display = 'block';
+            }
+        };
+
+        function copyText() {
+            const copyText = document.getElementById("output-text");
+            copyText.select();
+            document.execCommand("copy");
+            alert("Text bol skopírovaný!");
+        }
+    </script>
+</body>
+</html>
